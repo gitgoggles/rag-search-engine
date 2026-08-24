@@ -8,22 +8,54 @@ import string
 import json
 import argparse
 
+BM25_K1 = 1.5
+BM25_B = 0.75
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+MOVIES_PATH = os.path.join(PROJECT_ROOT, "data", "movies.json")
+STOPWORDS_PATH = os.path.join(PROJECT_ROOT, "data", "stopwords.txt")
+GOLDEN_DATASET_PATH = os.path.join(PROJECT_ROOT, "data", "golden_dataset.json")
+
+CACHE_PATH = os.path.join(PROJECT_ROOT, "cache")
+CACHE_INDEX = os.path.join(CACHE_PATH, "index.pkl")
+CACHE_DOCMAP = os.path.join(CACHE_PATH, "docmap.pkl")
+CACHE_TERM_FREQUENCIES = os.path.join(CACHE_PATH, "term_frequencies.pkl")
+CACHE_DOC_LENGTHS = os.path.join(CACHE_PATH, "doc_lengths.pkl")
+
 class InvertedIndex:
     def __init__(self):
         self.index = defaultdict(set)
         self.docmap = defaultdict(set)
         self.term_frequencies = defaultdict(Counter)
+        self.doc_lengths = defaultdict(int)
 
     def __add_document(self, doc_id, text):
         token_list = tokenize_text(text)
+        
+        self.doc_lengths[doc_id] = len(token_list)
+
         for token in token_list:
             self.index[token].add(doc_id)
             self.term_frequencies[doc_id][token] += 1
+
+    def __get_avg_doc_length(self) -> float:
+        if len(self.doc_lengths) == 0:
+            return 0.0
+        return sum(self.doc_lengths.values()) / len(self.doc_lengths)
 
     def get_tf(self, doc_id, term):
         if term not in self.term_frequencies[doc_id]:
             return 0
         return self.term_frequencies[doc_id][term]
+
+    def get_bm25_tf(self, doc_id, term, k1=BM25_K1, b=BM25_B):
+        tf = self.get_tf(doc_id, term)
+        doc_length = self.doc_lengths[doc_id]
+        avg_doc_length = self.__get_avg_doc_length()
+        length_norm = 1 - b + b * (doc_length / avg_doc_length)
+        saturated_normalized_tf = (tf * (k1 + 1)) / (tf + k1 * length_norm)
+
+        return saturated_normalized_tf
 
     def get_documents(self, term):
         doc_id_set = self.index[term]
@@ -45,6 +77,8 @@ class InvertedIndex:
             pickle.dump(self.docmap, docmap_file)
         with open(CACHE_TERM_FREQUENCIES, "wb") as term_frequencies_file:
             pickle.dump(self.term_frequencies, term_frequencies_file)
+        with open(CACHE_DOC_LENGTHS, "wb") as doc_lengths_file:
+            pickle.dump(self.doc_lengths, doc_lengths_file)
 
     def load(self):
         try:
@@ -54,21 +88,20 @@ class InvertedIndex:
                 self.docmap = pickle.load(docmap_file)
             with open(CACHE_TERM_FREQUENCIES, "rb") as term_frequencies_file:
                 self.term_frequencies = pickle.load(term_frequencies_file)
+            with open(CACHE_DOC_LENGTHS, "rb") as doc_lengths_file:
+                self.doc_lengths = pickle.load(doc_lengths_file)
         except FileNotFoundError as e:
             print("Failed to open index and docmap caches:", e)
 
+    def get_bm25_idf(self, term: str) -> float:
+        tokenized_term = tokenize_single_term(term)
 
+        total_doc_count = len(self.docmap)
+        term_match_doc_count = len(self.get_documents(tokenized_term))
 
+        bm25_idf = math.log((total_doc_count - term_match_doc_count + 0.5) / (term_match_doc_count + 0.5) + 1)
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
-MOVIES_PATH = os.path.join(PROJECT_ROOT, "data", "movies.json")
-STOPWORDS_PATH = os.path.join(PROJECT_ROOT, "data", "stopwords.txt")
-GOLDEN_DATASET_PATH = os.path.join(PROJECT_ROOT, "data", "golden_dataset.json")
-
-CACHE_PATH = os.path.join(PROJECT_ROOT, "cache")
-CACHE_INDEX = os.path.join(CACHE_PATH, "index.pkl")
-CACHE_DOCMAP = os.path.join(CACHE_PATH, "docmap.pkl")
-CACHE_TERM_FREQUENCIES = os.path.join(CACHE_PATH, "term_frequencies.pkl")
+        return bm25_idf
 
 def tokenize_text(text):
     stemmer = PorterStemmer()
@@ -171,6 +204,29 @@ def tfidf_command(doc_id, term):
     tf_idf = tf * idf
     print(f"TF-IDF score of '{term}' in document '{doc_id}': {tf_idf:.2f}")
 
+def bm25_idf_command(term):
+    try: 
+        index = InvertedIndex()
+        index.load()
+    except LookupError:
+        exit
+
+    bm25_idf = index.get_bm25_idf(term)
+
+    print(f"BM25 Inverse document frequency of '{term}': {bm25_idf:.2f}")
+    return bm25_idf
+
+def bm25_tf_command(doc_id, term, k1=BM25_K1,b=BM25_B):
+    try: 
+        index = InvertedIndex()
+        index.load()
+    except LookupError:
+        exit
+    tokenized_term = tokenize_single_term(term)
+    bm25tf = index.get_bm25_tf(doc_id, tokenized_term, k1, b)
+    print(f"BM25 TF score of '{term}' in document '{doc_id}': {bm25tf:.2f}")
+    return bm25tf
+
 
 
 
@@ -192,10 +248,18 @@ def main() -> None:
     idf_parser = subparsers.add_parser("idf", help="find the idf for a term")
     idf_parser.add_argument("term", type=str, help="search term")
 
+    bm25_idf_parser = subparsers.add_parser("bm25idf", help="find the bm25idf for a term")
+    bm25_idf_parser.add_argument("term", type=str, help="search term")
+
     tfidf_parser = subparsers.add_parser("tfidf", help="find the tf-idf")
     tfidf_parser.add_argument("doc_id", type=int, help="document id")
     tfidf_parser.add_argument("term", type=str, help="the term you are looking for")
 
+    bm25_tf_parser = subparsers.add_parser("bm25tf", help="Get BM25 TF score for a given document ID and term")
+    bm25_tf_parser.add_argument("doc_id", type=int, help="Document ID")
+    bm25_tf_parser.add_argument("term", type=str, help="Term to get BM25 TF score for")
+    bm25_tf_parser.add_argument("k1", type=float, nargs="?", default=BM25_K1, help="Tunable BM25 K1 parameter")
+    bm25_tf_parser.add_argument("b", type=float, nargs="?", default=BM25_B, help="Tunable BM25 B parameter")
     args = parser.parse_args()
 
     match args.command:
@@ -207,6 +271,10 @@ def main() -> None:
             search_command(args)
         case "idf":
             idf_command(args.term)
+        case "bm25idf":
+            bm25_idf_command(args.term)
+        case "bm25tf":
+            bm25_tf_command(args.doc_id, args.term, args.k1, args.b)
         case "tfidf":
             tfidf_command(args.doc_id, args.term)
         case _:
