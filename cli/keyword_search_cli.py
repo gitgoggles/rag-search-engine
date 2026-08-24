@@ -57,6 +57,25 @@ class InvertedIndex:
 
         return saturated_normalized_tf
 
+    def bm25(self, doc_id, term):
+        bm25_tf = self.get_bm25_tf(doc_id, term)
+        bm25_idf = self.get_bm25_idf(term)
+
+        return bm25_tf * bm25_idf
+
+    def bm25_search(self, query, limit):
+        tokenized_query = tokenize_text(query)
+        scores = defaultdict(float)
+
+        for doc_id in self.docmap:
+            total = 0.0
+            for token in tokenized_query:
+                total += self.bm25(doc_id, token)
+            scores[doc_id] = total
+        sorted_desc = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+        return sorted_desc[:limit]
+
     def get_documents(self, term):
         doc_id_set = self.index[term]
         return sorted(doc_id_set)
@@ -227,6 +246,21 @@ def bm25_tf_command(doc_id, term, k1=BM25_K1,b=BM25_B):
     print(f"BM25 TF score of '{term}' in document '{doc_id}': {bm25tf:.2f}")
     return bm25tf
 
+def bm25_search_command(query, limit=5):
+    try: 
+        index = InvertedIndex()
+        index.load()
+    except LookupError:
+        exit
+    result_tuples = index.bm25_search(query, limit)
+
+    num = 1
+    for doc_id, score in result_tuples:
+        movie = index.docmap[doc_id]
+
+        print(f"{num}. ({movie['id']}) {movie['title']} - Score: {score:.2f}")
+        num += 1
+
 
 
 
@@ -260,6 +294,11 @@ def main() -> None:
     bm25_tf_parser.add_argument("term", type=str, help="Term to get BM25 TF score for")
     bm25_tf_parser.add_argument("k1", type=float, nargs="?", default=BM25_K1, help="Tunable BM25 K1 parameter")
     bm25_tf_parser.add_argument("b", type=float, nargs="?", default=BM25_B, help="Tunable BM25 B parameter")
+
+    bm25search_parser = subparsers.add_parser("bm25search", help="Search movies using full BM25 scoring")
+    bm25search_parser.add_argument("query", type=str, help="Search query")
+    bm25search_parser.add_argument("limit", type=int, nargs="?", default=5, help="Maximum number of results")
+
     args = parser.parse_args()
 
     match args.command:
@@ -277,6 +316,8 @@ def main() -> None:
             bm25_tf_command(args.doc_id, args.term, args.k1, args.b)
         case "tfidf":
             tfidf_command(args.doc_id, args.term)
+        case "bm25search":
+            bm25_search_command(args.query, args.limit)
         case _:
             parser.print_help()
 
