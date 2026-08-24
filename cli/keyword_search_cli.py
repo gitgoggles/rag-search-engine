@@ -57,6 +57,16 @@ class InvertedIndex:
 
         return saturated_normalized_tf
 
+    def get_bm25_idf(self, term: str) -> float:
+        tokenized_term = tokenize_single_term(term)
+
+        total_doc_count = len(self.docmap)
+        term_match_doc_count = len(self.get_documents(tokenized_term))
+
+        bm25_idf = math.log((total_doc_count - term_match_doc_count + 0.5) / (term_match_doc_count + 0.5) + 1)
+
+        return bm25_idf
+
     def bm25(self, doc_id, term):
         bm25_tf = self.get_bm25_tf(doc_id, term)
         bm25_idf = self.get_bm25_idf(term)
@@ -112,15 +122,6 @@ class InvertedIndex:
         except FileNotFoundError as e:
             print("Failed to open index and docmap caches:", e)
 
-    def get_bm25_idf(self, term: str) -> float:
-        tokenized_term = tokenize_single_term(term)
-
-        total_doc_count = len(self.docmap)
-        term_match_doc_count = len(self.get_documents(tokenized_term))
-
-        bm25_idf = math.log((total_doc_count - term_match_doc_count + 0.5) / (term_match_doc_count + 0.5) + 1)
-
-        return bm25_idf
 
 def tokenize_text(text):
     stemmer = PorterStemmer()
