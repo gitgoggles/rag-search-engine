@@ -62,6 +62,26 @@ class SemanticSearch:
             list_of_dicts.append({"score": result[0], "title": result[1]["title"], "description": result[1]["description"]})
         return list_of_dicts
 
+
+def chunk_text(text: str, chunk_size: int):
+    print(f"Chunking {len(text)} characters")
+
+    if chunk_size <= 0:                                                        
+           raise ValueError("chunk_size must be positive")                        
+                                                                                  
+    words = text.split()                                                       
+    chunk_list: list[str] = []                                                 
+                                                                              
+    for start in range(0, len(words), chunk_size):                             
+       chunk = " ".join(words[start:start + chunk_size])                      
+       chunk_list.append(chunk)                                               
+                                                                              
+    for index, chunk in enumerate(chunk_list, start=1):                        
+       print(f"{index}. {chunk}")                                             
+                                                                              
+    return chunk_list   
+
+
 def search_command(query, limit):
     semantic_search = SemanticSearch()
     with open(MOVIES_PATH, "r") as movies_json:

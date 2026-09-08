@@ -3,6 +3,7 @@ from lib.semantic_search import embed_query_text
 from lib.semantic_search import embed_text
 from lib.semantic_search import verify_model
 from lib.semantic_search import verify_embeddings
+from lib.semantic_search import chunk_text
 import argparse
 
 
@@ -23,6 +24,10 @@ def main() -> None:
     search_parser.add_argument("query", type=str, help="the search query")
     search_parser.add_argument("--limit", type=int, default=5, help="result limit")
 
+    chunk_parser = subparsers.add_parser("chunk", help="chunk some text")
+    chunk_parser.add_argument("text", type=str, help="the text to chunk")
+    chunk_parser.add_argument("--chunk-size", type=int, default=200, help="the chunk size")
+
     args = parser.parse_args()
 
     match args.command:
@@ -34,6 +39,8 @@ def main() -> None:
             embed_text(args.text)
         case "embed_query":
             embed_query_text(args.query)
+        case "chunk":
+            chunk_text(args.text, args.chunk_size)
         case "search":
             search_command(args.query, args.limit)
         case _:

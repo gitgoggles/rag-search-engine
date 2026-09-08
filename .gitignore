@@ -1,2 +1,4 @@
 /data/
 .venv
+cli/__pycache__
+cli/lib/__pycache__
