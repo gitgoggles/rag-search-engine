@@ -63,7 +63,7 @@ class SemanticSearch:
         return list_of_dicts
 
 
-def chunk_text(text: str, chunk_size: int):
+def chunk_text(text: str, chunk_size: int, overlap: str):
     print(f"Chunking {len(text)} characters")
 
     if chunk_size <= 0:                                                        
@@ -73,7 +73,12 @@ def chunk_text(text: str, chunk_size: int):
     chunk_list: list[str] = []                                                 
                                                                               
     for start in range(0, len(words), chunk_size):                             
-       chunk = " ".join(words[start:start + chunk_size])                      
+       if start - overlap < 0:
+           chunk = " ".join(words[start:start + chunk_size])                      
+
+       if start - overlap >= 0:
+           chunk = " ".join(words[start - overlap:start + chunk_size])                      
+
        chunk_list.append(chunk)                                               
                                                                               
     for index, chunk in enumerate(chunk_list, start=1):                        
