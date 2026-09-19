@@ -1,3 +1,4 @@
+import re
 import json
 from collections import defaultdict
 from sentence_transformers import SentenceTransformer
@@ -62,6 +63,33 @@ class SemanticSearch:
             list_of_dicts.append({"score": result[0], "title": result[1]["title"], "description": result[1]["description"]})
         return list_of_dicts
 
+
+def semantic_chunk_text(text: str, max_chunk_size: int, overlap: str):
+    print(f"Semantically chunking {len(text)} characters")
+
+
+    if max_chunk_size <= 0:                                                        
+           raise ValueError("max_chunk_size must be positive")                        
+
+    if max_chunk_size - overlap <= 0:                                                        
+           raise ValueError("(max_chunk_size - overlap) must be positive")                        
+
+    sentence_list = re.split(r"(?<=[.!?])\s+", text)
+                                                                                  
+    chunk_list: list[str] = []                                                 
+                                                                              
+    step = max_chunk_size - overlap
+
+    for start in range(0, len(sentence_list), step):                             
+
+       chunk = " ".join(sentence_list[start:start + max_chunk_size])                      
+
+       chunk_list.append(chunk)                                               
+                                                                              
+    for index, chunk in enumerate(chunk_list, start=1):                        
+       print(f"{index}. {chunk}")                                             
+                                                                              
+    return chunk_list   
 
 def chunk_text(text: str, chunk_size: int, overlap: str):
     print(f"Chunking {len(text)} characters")

@@ -4,6 +4,7 @@ from lib.semantic_search import embed_text
 from lib.semantic_search import verify_model
 from lib.semantic_search import verify_embeddings
 from lib.semantic_search import chunk_text
+from lib.semantic_search import semantic_chunk_text
 import argparse
 
 
@@ -29,6 +30,11 @@ def main() -> None:
     chunk_parser.add_argument("--chunk-size", type=int, default=200, help="the chunk size")
     chunk_parser.add_argument("--overlap", type=int, default=0, help="define overlap size")
 
+    semantic_chunk_parser = subparsers.add_parser("semantic_chunk", help="semanticly chunk some text")
+    semantic_chunk_parser.add_argument("text", type=str, help="the text to chunk")
+    semantic_chunk_parser.add_argument("--max-chunk-size", type=int, default=4, help="the chunk size")
+    semantic_chunk_parser.add_argument("--overlap", type=int, default=0, help="define overlap size")
+
     args = parser.parse_args()
 
     match args.command:
@@ -42,6 +48,8 @@ def main() -> None:
             embed_query_text(args.query)
         case "chunk":
             chunk_text(args.text, args.chunk_size, args.overlap)
+        case "semantic_chunk":
+            semantic_chunk_text(args.text, args.max_chunk_size, args.overlap)
         case "search":
             search_command(args.query, args.limit)
         case _:
