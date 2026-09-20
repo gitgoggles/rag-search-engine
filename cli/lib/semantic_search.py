@@ -63,6 +63,12 @@ class SemanticSearch:
             list_of_dicts.append({"score": result[0], "title": result[1]["title"], "description": result[1]["description"]})
         return list_of_dicts
 
+# you are here <-------------
+class ChunkedSemanticSearch(SemanticSearch):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+        super().__init__(model_name)
+        self.chunk_embeddings = None
+        self.chunk_metadata = None
 
 def semantic_chunk_text(text: str, max_chunk_size: int, overlap: str):
     print(f"Semantically chunking {len(text)} characters")
