@@ -9,6 +9,8 @@ from consts import PROJECT_ROOT
 
 CACHE_PATH = os.path.join(PROJECT_ROOT, "cache")
 CACHE_EMBEDDINGS = os.path.join(CACHE_PATH, "movie_embeddings.npy")
+CACHE_CHUNK_EMBEDDINGS = os.path.join(CACHE_PATH, "chunk_embeddings.npy")
+CACHE_CHUNK_METADATA = os.path.join(CACHE_PATH, "chunk_metadata.json")
 MOVIES_PATH = os.path.join(PROJECT_ROOT, "data", "movies.json")
 
 class SemanticSearch:
@@ -63,12 +65,39 @@ class SemanticSearch:
             list_of_dicts.append({"score": result[0], "title": result[1]["title"], "description": result[1]["description"]})
         return list_of_dicts
 
-# you are here <-------------
 class ChunkedSemanticSearch(SemanticSearch):
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
         super().__init__(model_name)
         self.chunk_embeddings = None
         self.chunk_metadata = None
+
+    def build_chunk_embeddings(self, documents: list[dict]) -> np.ndarray:
+        self.documents = documents
+        doc_list = []
+        for doc in documents:
+            self.document_map[doc["id"]] = doc
+            doc_list.append(f"{doc['title']}: {doc['description']}")
+
+        chunk_list: list[str] = []
+        chunk_metadata_list: list[dict] = []
+
+        for doc_i, _ in enumerate(documents):
+            if doc_i['description'] == "":
+                continue
+            inner_chunk_list = semantic_chunk_text(doc_i['description'], 4, 1)
+            chunk_list.extend(inner_chunk_list)
+            for chunk_i, _ in enumerate(inner_chunk_list):
+                chunk_metadata_list.append({"movie_idx": doc_i, "chunk_idx": chunk_i, "total_chunks": len(inner_chunk_list)})
+
+        self.chunk_embeddings = self.model.encode(chunk_list, show_progress_bar=True)
+        self.chunk_metadata = chunk_metadata_list
+
+        np.save(CACHE_CHUNK_EMBEDDINGS, self.chunk_embeddings)
+        np.save(CACHE_CHUNK_METADATA, json.dump({"chunks": self.chunk_metadata, "total_chunks": len(self.chunk_embeddings)}, f, indent=2))
+
+# you are here <-------------
+        return self.chunk_embeddings
+
 
 def semantic_chunk_text(text: str, max_chunk_size: int, overlap: str):
     print(f"Semantically chunking {len(text)} characters")
