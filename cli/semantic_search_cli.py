@@ -1,10 +1,4 @@
-from lib.semantic_search import search_command
-from lib.semantic_search import embed_query_text
-from lib.semantic_search import embed_text
-from lib.semantic_search import verify_model
-from lib.semantic_search import verify_embeddings
-from lib.semantic_search import chunk_text
-from lib.semantic_search import semantic_chunk_text
+import cli.lib.semantic_search as ss
 import argparse
 
 
@@ -14,12 +8,17 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     subparsers.add_parser("verify", help="verify the model")
     subparsers.add_parser("verify_embeddings", help="verify the embeddings")
+    subparsers.add_parser("embed_chunks", help="embed the query")
 
     embed_query = subparsers.add_parser("embed_query", help="embed the query")
     embed_query.add_argument("query", type=str, help="query to embed")
 
     embed_parser = subparsers.add_parser("embed_text", help="embed text")
     embed_parser.add_argument("text", type=str, help="text to embed")
+
+    search_chunked_parser = subparsers.add_parser("search_chunked", help="do a chunked search")
+    search_chunked_parser.add_argument("query", type=str, help="the search query")
+    search_chunked_parser.add_argument("--limit", type=int, default=5, help="result limit")
 
     search_parser = subparsers.add_parser("search", help="do a search")
     search_parser.add_argument("query", type=str, help="the search query")
@@ -38,25 +37,26 @@ def main() -> None:
     args = parser.parse_args()
 
     match args.command:
+        case "embed_chunks":
+            ss.embed_chunks()
         case "verify":
-            verify_model()
+            ss.verify_model()
         case "verify_embeddings":
-            verify_embeddings()
+            ss.verify_embeddings()
         case "embed_text":
-            embed_text(args.text)
+            ss.embed_text(args.text)
         case "embed_query":
-            embed_query_text(args.query)
+            ss.embed_query_text(args.query)
         case "chunk":
-            chunk_text(args.text, args.chunk_size, args.overlap)
+            ss.chunk_text(args.text, args.chunk_size, args.overlap)
         case "semantic_chunk":
-            semantic_chunk_text(args.text, args.max_chunk_size, args.overlap)
+            ss.semantic_chunk_text(args.text, args.max_chunk_size, args.overlap)
         case "search":
-            search_command(args.query, args.limit)
+            ss.search_command(args.query, args.limit)
+        case "search_chunked":
+            ss.search_chunked_command(args.query, args.limit)
         case _:
             parser.print_help()
-
-
-
 
 if __name__ == "__main__":
     main()
