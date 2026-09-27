@@ -9,3 +9,5 @@ dependencies = [
     "numpy==2.3.3",
     "sentence-transformers>=6.0.0",
 ]
+[tool.pyright]                                                                                                                                                         
+extraPaths = ["cli"] 

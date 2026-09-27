@@ -5,7 +5,7 @@ from collections import defaultdict
 from sentence_transformers import SentenceTransformer
 import os
 import numpy as np
-import cli.consts as c
+import lib.consts as c
 
 CACHE_PATH = os.path.join(c.PROJECT_ROOT, "cache")
 CACHE_EMBEDDINGS = os.path.join(CACHE_PATH, "movie_embeddings.npy")
