@@ -1,6 +1,6 @@
 import os
 
-from .keyword_search import InvertedIndex
+from .keyword_search import CACHE_INDEX, InvertedIndex
 from .semantic_search import ChunkedSemanticSearch
 
 
@@ -11,11 +11,11 @@ class HybridSearch:
         self.semantic_search.load_or_create_chunk_embeddings(documents)
 
         self.idx = InvertedIndex()
-        if not os.path.exists(self.idx.index_path):
+        if not os.path.exists(CACHE_INDEX):
             self.idx.build()
             self.idx.save()
 
-    def _bm25_search(self, query: str, limit: int) -> list[dict]:
+    def _bm25_search(self, query: str, limit: int) -> list[tuple[int, float]]:
         self.idx.load()
         return self.idx.bm25_search(query, limit)
 
