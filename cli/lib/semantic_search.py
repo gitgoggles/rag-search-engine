@@ -52,8 +52,12 @@ class SemanticSearch:
     def search(self, query, limit):
         if self.embeddings is None:
             raise ValueError("embeddings aren't loaded!")
+        if self.documents is None:
+            raise ValueError("documents aren't loaded!")
+
         query_emb = self.generate_embedding(query)
         score_list = []
+
         for doc, doc_emb in zip(self.documents, self.embeddings):
             similarity = cosine_similarity(query_emb, doc_emb)
             score_list.append((similarity, doc))
@@ -123,7 +127,14 @@ class ChunkedSemanticSearch(SemanticSearch):
         chunk_score_list: list[dict] = []
         best_chunk_scores = {}
 
+        if self.chunk_embeddings is None:
+            raise ValueError("chunk_embeddings missing!")
+
         for idx, chunk_embedding in enumerate(self.chunk_embeddings):
+
+            if self.chunk_metadata is None:
+                raise ValueError("chunk metadata missing!")
+
             movie_idx = self.chunk_metadata[idx]["movie_idx"]
             score = cosine_similarity(query_embedding, chunk_embedding)
             chunk_dict = {"chunk_idx": idx, "movie_idx": movie_idx, "score": score}
@@ -140,6 +151,9 @@ class ChunkedSemanticSearch(SemanticSearch):
 
         result_list = []
         for chunk in limited_best_chunk_scores:
+            if self.documents is None:
+                raise ValueError("documents missing!")
+
             doc = self.documents[chunk[1]["movie_idx"]]
             formatted = format_search_result(doc["id"], doc["title"], doc["description"][:100], chunk[1]["score"])
             result_list.append(formatted)
@@ -152,6 +166,10 @@ def embed_chunks():
         movie_list: list = json.load(movies_json)["movies"]
         chunked_sem_search = ChunkedSemanticSearch()
         chunked_sem_search.load_or_create_chunk_embeddings(movie_list)
+
+        if chunked_sem_search.chunk_embeddings is None:
+            raise ValueError("chunk embeddings are missing!")
+
         print(f"Generated {len(chunked_sem_search.chunk_embeddings)} chunked embeddings")
 
 
@@ -195,7 +213,7 @@ def semantic_chunk_text(text: str, max_chunk_size: int, overlap: int):
                                                                               
     return chunk_list   
 
-def chunk_text(text: str, chunk_size: int, overlap: str):
+def chunk_text(text: str, chunk_size: int, overlap: int):
     print(f"Chunking {len(text)} characters")
 
     if chunk_size <= 0:                                                        
@@ -203,6 +221,7 @@ def chunk_text(text: str, chunk_size: int, overlap: str):
                                                                                   
     words = text.split()                                                       
     chunk_list: list[str] = []                                                 
+    chunk = None
                                                                               
     for start in range(0, len(words), chunk_size):                             
        if start - overlap < 0:
@@ -210,8 +229,8 @@ def chunk_text(text: str, chunk_size: int, overlap: str):
 
        if start - overlap >= 0:
            chunk = " ".join(words[start - overlap:start + chunk_size])                      
-
-       chunk_list.append(chunk)                                               
+       if chunk is not None:
+           chunk_list.append(chunk)                                               
                                                                               
     for index, chunk in enumerate(chunk_list, start=1):                        
        print(f"{index}. {chunk}")                                             
@@ -265,6 +284,12 @@ def verify_embeddings():
     with open(MOVIES_PATH, "r") as movies_json:
         movie_list: list = json.load(movies_json)["movies"]
         semantic_search.load_or_create_embeddings(movie_list)
+
+        if semantic_search.embeddings is None:
+            raise ValueError("embeddings aren't loaded!")
+        if semantic_search.documents is None:
+            raise ValueError("documents aren't loaded!")
+
         documents = semantic_search.documents
         embeddings = semantic_search.embeddings
         print(f"Number of docs:   {len(documents)}")
