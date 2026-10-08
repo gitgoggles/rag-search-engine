@@ -32,7 +32,7 @@ def main() -> None:
     semantic_chunk_parser = subparsers.add_parser("semantic_chunk", help="semanticly chunk some text")
     semantic_chunk_parser.add_argument("text", type=str, help="the text to chunk")
     semantic_chunk_parser.add_argument("--max-chunk-size", type=int, default=4, help="the chunk size")
-    semantic_chunk_parser.add_argument("--overlap", type=int, default=0, help="define overlap size")
+    semantic_chunk_parser.add_argument("--overlap", type=int, default=0, help="define the overlap size")
 
     args = parser.parse_args()
 
