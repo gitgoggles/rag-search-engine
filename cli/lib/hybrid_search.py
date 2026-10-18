@@ -60,7 +60,37 @@ class HybridSearch:
         )
 
     def rrf_search(self, query: str, k: int, limit: int = 10) -> list[dict]:
-        raise NotImplementedError("RRF hybrid search is not implemented yet.")
+        if limit <= 0:
+            return []
+
+        bm25_results = self._bm25_search(query, limit * 500)
+        semantic_results = self.semantic_search.search_chunks(query, limit * 500)
+        documents = {doc["id"]: doc for doc in self.documents}
+        merged = {}
+
+        for rank_key, doc_ids in (
+            ("bm25_rank", [doc_id for doc_id, _ in bm25_results]),
+            ("semantic_rank", [result["id"] for result in semantic_results]),
+        ):
+            for rank, doc_id in enumerate(doc_ids, start=1):
+                if doc_id not in merged:
+                    merged[doc_id] = {
+                        "document": documents[doc_id],
+                        "bm25_rank": None,
+                        "semantic_rank": None,
+                        "rrf_score": 0.0,
+                    }
+                result = merged[doc_id]
+                result[rank_key] = rank
+                result["rrf_score"] += rrf_score(rank, k)
+
+        return sorted(
+            merged.values(), key=lambda result: result["rrf_score"], reverse=True
+        )
+
+
+def rrf_score(rank: int, k: int = 60) -> float:
+    return 1 / (k + rank)
 
 def normalize(scores: list[float]) -> list[float]:
     if not scores:
@@ -81,6 +111,21 @@ def hybrid_score(bm25_score: float, semantic_score: float, alpha: float) -> floa
 def normalize_command(float_list):
     for score in normalize(float_list):
         print(f"* {score:.4f}")
+
+
+def rrf_search_command(query, k, limit):
+    search = HybridSearch(load_movies())
+    results = search.rrf_search(query, k, limit)
+    for rank, result in enumerate(results[:limit], start=1):
+        document = result["document"]
+        print(f"{rank}. {document['title']}")
+        print(f"  RRF Score: {result['rrf_score']:.3f}")
+        print(
+            f"  BM25 Rank: {result['bm25_rank']}, "
+            f"Semantic Rank: {result['semantic_rank']}"
+        )
+        print(f"  {document['description'][:DOCUMENT_PREVIEW_LENGTH]}")
+        print()
 
 
 def weighted_search_command(query, alpha, limit):

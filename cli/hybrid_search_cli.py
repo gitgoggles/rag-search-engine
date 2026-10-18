@@ -16,6 +16,11 @@ def main() -> None:
     weighted_parser.add_argument("--alpha", default=0.5, type=float)
     weighted_parser.add_argument("--limit", default=5, type=int)
 
+    rrf_parser = subparsers.add_parser("rrf-search", help="perform reciprocal rank fusion search")
+    rrf_parser.add_argument("query", type=str)
+    rrf_parser.add_argument("-k", default=60, type=int)
+    rrf_parser.add_argument("--limit", default=5, type=int)
+
     args = parser.parse_args()
 
     match args.command:
@@ -23,6 +28,8 @@ def main() -> None:
             hs.normalize_command(args.values)
         case "weighted-search":
             hs.weighted_search_command(args.query, args.alpha, args.limit)
+        case "rrf-search":
+            hs.rrf_search_command(args.query, args.k, args.limit)
         case _:
             parser.print_help()
 
