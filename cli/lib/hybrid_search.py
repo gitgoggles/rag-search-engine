@@ -1,5 +1,8 @@
 import os
 
+from dotenv import load_dotenv
+from openai import OpenAI
+
 from .keyword_search import CACHE_INDEX, InvertedIndex
 from .semantic_search import ChunkedSemanticSearch
 from .search_utils import DOCUMENT_PREVIEW_LENGTH, load_movies
@@ -92,6 +95,7 @@ class HybridSearch:
 def rrf_score(rank: int, k: int = 60) -> float:
     return 1 / (k + rank)
 
+
 def normalize(scores: list[float]) -> list[float]:
     if not scores:
         return []
@@ -113,7 +117,37 @@ def normalize_command(float_list):
         print(f"* {score:.4f}")
 
 
-def rrf_search_command(query, k, limit):
+def correct_spelling(query: str) -> str:
+    load_dotenv()
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
+
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    response = client.chat.completions.create(
+        model="openrouter/free",
+        messages=[
+            {
+                "role": "user",
+                "content": f"""Fix any spelling errors in the user-provided movie search query below.
+Correct only clear, high-confidence typos. Do not rewrite, add, remove, or reorder words.
+Preserve punctuation and capitalization unless a change is required for a typo fix.
+If there are no spelling errors, or if you're unsure, output the original query.
+Output only the final query text, nothing else.
+User query: "{query}"
+""",
+            }
+        ],
+    )
+    return (response.choices[0].message.content or "").strip() or query
+
+
+def rrf_search_command(query, k, limit, enhance=None):
+    if enhance == "spell":
+        enhanced_query = correct_spelling(query)
+        print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
+        query = enhanced_query
+
     search = HybridSearch(load_movies())
     results = search.rrf_search(query, k, limit)
     for rank, result in enumerate(results[:limit], start=1):

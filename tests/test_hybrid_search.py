@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cli"))
 
 from lib.hybrid_search import (
     HybridSearch,
+    correct_spelling,
     hybrid_score,
     normalize,
     normalize_command,
@@ -93,6 +94,35 @@ class HybridSearchTests(unittest.TestCase):
             "1. Movie 1\n  RRF Score: 0.033\n"
             "  BM25 Rank: 1, Semantic Rank: 2\n  A description\n\n",
         )
+
+    def test_rrf_spell_enhancement(self):
+        output = io.StringIO()
+        with (
+            patch("lib.hybrid_search.correct_spelling", return_value="british bear") as correct,
+            patch("lib.hybrid_search.load_movies", return_value=[]),
+            patch("lib.hybrid_search.HybridSearch") as constructor,
+            contextlib.redirect_stdout(output),
+        ):
+            constructor.return_value.rrf_search.return_value = []
+            rrf_search_command("briish bear", 60, 5, "spell")
+            correct.assert_called_once_with("briish bear")
+            constructor.return_value.rrf_search.assert_called_once_with("british bear", 60, 5)
+        self.assertEqual(
+            output.getvalue(),
+            "Enhanced query (spell): 'briish bear' -> 'british bear'\n\n",
+        )
+
+    def test_spelling_response_and_empty_fallback(self):
+        with (
+            patch("lib.hybrid_search.load_dotenv"),
+            patch.dict("os.environ", {"OPENROUTER_API_KEY": "test-key"}),
+            patch("lib.hybrid_search.OpenAI") as client,
+        ):
+            completion = client.return_value.chat.completions.create
+            for content, expected in [(" british bear\n", "british bear"), (None, "briish bear"), (" ", "briish bear")]:
+                completion.return_value.choices = [Mock(message=Mock(content=content))]
+                self.assertEqual(correct_spelling("briish bear"), expected)
+            self.assertIn("briish bear", completion.call_args.kwargs["messages"][0]["content"])
 
     def test_alpha_endpoints(self):
         self.assertEqual(hybrid_score(0.8, 0.2, 1.0), 0.8)
