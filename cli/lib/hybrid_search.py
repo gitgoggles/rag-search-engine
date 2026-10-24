@@ -154,6 +154,37 @@ User query: "{query}"
     return (response.choices[0].message.content or "").strip() or query
 
 
+def expand_query(query: str) -> str:
+    load_dotenv()
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
+
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    response = client.chat.completions.create(
+        model="openrouter/free",
+        messages=[
+            {
+                "role": "user",
+                "content": f"""Expand the user-provided movie search query below with related terms.
+
+Add synonyms and related concepts that might appear in movie descriptions.
+Keep expansions relevant and focused.
+Output only the additional terms; they will be appended to the original query.
+
+Examples:
+- "scary bear movie" -> "scary horror grizzly bear movie terrifying film"
+- "action movie with bear" -> "action thriller bear chase fight adventure"
+- "comedy with bear" -> "comedy funny bear humor lighthearted"
+
+User query: "{query}"
+""",
+            }
+        ],
+    )
+    return (response.choices[0].message.content or "").strip() or query
+
+
 def correct_spelling(query: str) -> str:
     load_dotenv()
     api_key = os.environ.get("OPENROUTER_API_KEY")
@@ -188,6 +219,10 @@ def rrf_search_command(query, k, limit, enhance=None):
         rewritten_query = rewrite_query(query)
         print(f"Rewritten query ({enhance}): '{query}' -> '{rewritten_query}'\n")
         query = rewritten_query
+    if enhance == "expand":
+        expanded_query = expand_query(query)
+        print(f"Rewritten query ({enhance}): '{query}' -> '{expanded_query}'\n")
+        query = expanded_query
 
     search = HybridSearch(load_movies())
     results = search.rrf_search(query, k, limit)
