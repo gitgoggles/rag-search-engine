@@ -117,6 +117,43 @@ def normalize_command(float_list):
         print(f"* {score:.4f}")
 
 
+def rewrite_query(query: str) -> str:
+    load_dotenv()
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
+
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    response = client.chat.completions.create(
+        model="openrouter/free",
+        messages=[
+            {
+                "role": "user",
+                "content": f"""Rewrite the user-provided movie search query below to be more specific and searchable.
+
+Consider:
+- Common movie knowledge (famous actors, popular films)
+- Genre conventions (horror = scary, animation = cartoon)
+- Keep the rewritten query concise (under 10 words)
+- It should be a Google-style search query, specific enough to yield relevant results
+- Don't use boolean logic
+
+Examples:
+- "that bear movie where leo gets attacked" -> "The Revenant Leonardo DiCaprio bear attack"
+- "movie about bear in london with marmalade" -> "Paddington London marmalade"
+- "scary movie with bear from few years ago" -> "bear horror movie 2015-2020"
+
+If you cannot improve the query, output the original unchanged.
+Output only the rewritten query text, nothing else.
+
+User query: "{query}"
+""",
+            }
+        ],
+    )
+    return (response.choices[0].message.content or "").strip() or query
+
+
 def correct_spelling(query: str) -> str:
     load_dotenv()
     api_key = os.environ.get("OPENROUTER_API_KEY")
@@ -147,6 +184,10 @@ def rrf_search_command(query, k, limit, enhance=None):
         enhanced_query = correct_spelling(query)
         print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
         query = enhanced_query
+    if enhance == "rewrite":
+        rewritten_query = rewrite_query(query)
+        print(f"Rewritten query ({enhance}): '{query}' -> '{rewritten_query}'\n")
+        query = rewritten_query
 
     search = HybridSearch(load_movies())
     results = search.rrf_search(query, k, limit)

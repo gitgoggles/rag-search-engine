@@ -30,7 +30,10 @@ def main() -> None:
     rrf_parser.add_argument("-k", default=60, type=int)
     rrf_parser.add_argument("--limit", default=5, type=int)
     rrf_parser.add_argument(
-        "--enhance", type=str, choices=["spell"], help="Query enhancement method"
+        "--enhance",
+        type=str,
+        choices=["spell", "rewrite"],
+        help="Query enhancement method",
     )
 
     args = parser.parse_args()
