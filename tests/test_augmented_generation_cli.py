@@ -55,6 +55,7 @@ class AugmentedGenerationCliTests(unittest.TestCase):
         for limit in (5, 2):
             with self.subTest(limit=limit):
                 output = io.StringIO()
+                progress = io.StringIO()
                 argv = ["augmented_generation_cli.py", "summarize", "dinosaurs"]
                 if limit != 5:
                     argv.extend(["--limit", str(limit)])
@@ -66,12 +67,21 @@ class AugmentedGenerationCliTests(unittest.TestCase):
                     patch.object(cli, "HybridSearch") as search,
                     patch.object(cli, "OpenAI") as client,
                     contextlib.redirect_stdout(output),
+                    contextlib.redirect_stderr(progress),
                 ):
                     search.return_value.rrf_search.return_value = [
                         {"document": doc} for doc in documents
                     ]
                     completions = client.return_value.chat.completions
                     completions.create.return_value.choices[0].message.content = "  Summary.  "
+                    def respond(**kwargs):
+                        self.assertEqual(
+                            progress.getvalue(),
+                            "[LLM] Prompting for search result summarization...\n",
+                        )
+                        return completions.create.return_value
+
+                    completions.create.side_effect = respond
                     cli.main()
 
                 search.assert_called_once_with(documents)

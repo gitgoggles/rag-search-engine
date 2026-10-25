@@ -15,9 +15,11 @@ from .search_utils import DOCUMENT_PREVIEW_LENGTH, load_movies
 class HybridSearch:
     def __init__(self, documents: list[dict]) -> None:
         self.documents = documents
+        print("[Search] Loading semantic model and embeddings...", file=sys.stderr, flush=True)
         self.semantic_search = ChunkedSemanticSearch()
         self.semantic_search.load_or_create_chunk_embeddings(documents)
 
+        print("[Search] Preparing keyword index...", file=sys.stderr, flush=True)
         self.idx = InvertedIndex()
         if not os.path.exists(CACHE_INDEX):
             self.idx.build()
@@ -33,9 +35,12 @@ class HybridSearch:
         if limit <= 0:
             return []
 
+        print("[Search] Keyword search (BM25)...", file=sys.stderr, flush=True)
         bm25_results = self._bm25_search(query, limit * 500)
+        print("[Search] Semantic search...", file=sys.stderr, flush=True)
         semantic_results = self.semantic_search.search_chunks(query, limit * 500)
 
+        print("[Search] Normalizing scores and weighted fusion...", file=sys.stderr, flush=True)
         bm25_scores = normalize([score for _, score in bm25_results])
         semantic_scores = normalize([result["score"] for result in semantic_results])
 
@@ -70,8 +75,11 @@ class HybridSearch:
         if limit <= 0:
             return []
 
+        print("[Search] Keyword search (BM25)...", file=sys.stderr, flush=True)
         bm25_results = self._bm25_search(query, limit * 500)
+        print("[Search] Semantic search...", file=sys.stderr, flush=True)
         semantic_results = self.semantic_search.search_chunks(query, limit * 500)
+        print("[Search] Reciprocal rank fusion (RRF)...", file=sys.stderr, flush=True)
         documents = {doc["id"]: doc for doc in self.documents}
         merged = {}
 
@@ -128,6 +136,7 @@ def rewrite_query(query: str) -> str:
         raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
 
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    print("[LLM] Prompting for query rewriting...", file=sys.stderr, flush=True)
     response = client.chat.completions.create(
         model="openrouter/free",
         messages=[
@@ -165,6 +174,7 @@ def expand_query(query: str) -> str:
         raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
 
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    print("[LLM] Prompting for query expansion...", file=sys.stderr, flush=True)
     response = client.chat.completions.create(
         model="openrouter/free",
         messages=[
@@ -196,6 +206,7 @@ def correct_spelling(query: str) -> str:
         raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
 
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    print("[LLM] Prompting for spelling correction...", file=sys.stderr, flush=True)
     response = client.chat.completions.create(
         model="openrouter/free",
         messages=[
@@ -228,6 +239,7 @@ def rerank_individual(query: str, results: list[dict]) -> list[dict]:
         if index:
             time.sleep(3)
         doc = result["document"]
+        print("[LLM] Prompting for individual re-ranking...", file=sys.stderr, flush=True)
         response = client.chat.completions.create(
             model=os.environ.get("RERANK_MODEL", "Qwen3.6-35B-A3B-UD-Q4_K_M"),
             max_tokens=32,
@@ -274,6 +286,7 @@ def rerank_batch(query: str, results: list[dict]) -> list[dict]:
         api_key=os.environ.get("RERANK_API_KEY") or "unused",
     )
     doc_list_str = json.dumps([result["document"] for result in results])
+    print("[LLM] Prompting for batch re-ranking...", file=sys.stderr, flush=True)
     response = client.chat.completions.create(
         model=os.environ.get("RERANK_MODEL", "Qwen3.6-35B-A3B-UD-Q4_K_M"),
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
@@ -354,6 +367,7 @@ def evaluate_results(query: str, results: list[dict]) -> list[int]:
         f"{index}. {result['document']['title']}: {result['document']['description']}"
         for index, result in enumerate(results, start=1)
     ]
+    print("[LLM] Prompting for result evaluation...", file=sys.stderr, flush=True)
     response = client.chat.completions.create(
         model=os.environ.get("RERANK_MODEL", "Qwen3.6-35B-A3B-UD-Q4_K_M"),
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
@@ -413,6 +427,8 @@ def rrf_search_command(query, k, limit, enhance=None, rerank_method=None, debug=
             ])
 
     log("Original query", query)
+    if enhance:
+        print(f"[Search] Query enhancement ({enhance})...", file=sys.stderr, flush=True)
     if enhance == "spell":
         enhanced_query = correct_spelling(query)
         print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
@@ -433,7 +449,7 @@ def rrf_search_command(query, k, limit, enhance=None, rerank_method=None, debug=
     log_results("Results after RRF search (before candidate cutoff)", results)
     log_results("Re-ranking candidates", results[:max(0, candidate_limit)])
     if rerank_method:
-        print(f"Re-ranking top {limit} results using {rerank_method} method...")
+        print(f"Re-ranking top {limit} results using {rerank_method} method...", flush=True)
         rerank = {
             "individual": rerank_individual,
             "batch": rerank_batch,
@@ -461,6 +477,7 @@ def rrf_search_command(query, k, limit, enhance=None, rerank_method=None, debug=
         print()
 
     if evaluate:
+        print("[Search] Evaluating results...", file=sys.stderr, flush=True)
         final_results = results[:max(0, limit)]
         scores = evaluate_results(original_query, final_results)
         for rank, (result, score) in enumerate(zip(final_results, scores, strict=True), start=1):

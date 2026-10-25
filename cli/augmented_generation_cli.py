@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -35,6 +36,7 @@ Documents:
 
 Answer:"""
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    print("[LLM] Prompting for RAG answer generation...", file=sys.stderr, flush=True)
     response = client.chat.completions.create(
         model="openrouter/free",
         messages=[{"role": "user", "content": prompt}],
@@ -79,6 +81,7 @@ Search results:
 
 Provide a comprehensive 3-4 sentence answer that combines information from multiple sources:"""
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    print("[LLM] Prompting for search result summarization...", file=sys.stderr, flush=True)
     response = client.chat.completions.create(
         model="openrouter/free",
         messages=[{"role": "user", "content": prompt}],

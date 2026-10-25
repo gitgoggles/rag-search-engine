@@ -37,6 +37,23 @@ class HybridSearchTests(unittest.TestCase):
             {"id": 1, "score": 0.3},
         ]
 
+    def test_pipeline_progress_messages(self):
+        for method, args, fusion_message in [
+            (self.search.rrf_search, ("bear", 60, 2),
+             "[Search] Reciprocal rank fusion (RRF)..."),
+            (self.search.weighted_search, ("bear", 0.25, 2),
+             "[Search] Normalizing scores and weighted fusion..."),
+        ]:
+            with self.subTest(method=method.__name__):
+                progress = io.StringIO()
+                with contextlib.redirect_stderr(progress):
+                    method(*args)
+                self.assertEqual(progress.getvalue().splitlines(), [
+                    "[Search] Keyword search (BM25)...",
+                    "[Search] Semantic search...",
+                    fusion_message,
+                ])
+
     def test_normalize(self):
         self.assertEqual(normalize([]), [])
         self.assertEqual(normalize([4.0]), [1.0])
