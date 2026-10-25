@@ -27,9 +27,14 @@ def main() -> None:
         relevant = test_case["relevant_docs"]
         relevant_titles = set(relevant)
         precision = sum(title in relevant_titles for title in retrieved) / limit
+        recall = (
+            len(set(retrieved) & relevant_titles) / len(relevant_titles)
+            if relevant_titles else 0.0
+        )
 
         print(f"\n- Query: {query}")
         print(f"  - Precision@{limit}: {precision:.4f}")
+        print(f"  - Recall@{limit}: {recall:.4f}")
         print(f"  - Retrieved: {', '.join(retrieved)}")
         print(f"  - Relevant: {', '.join(relevant)}")
 

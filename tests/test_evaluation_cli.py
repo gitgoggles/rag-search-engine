@@ -41,8 +41,34 @@ class EvaluationCliTests(unittest.TestCase):
                 )
                 self.assertIn(f"k={limit}\n", output.getvalue())
                 self.assertIn(f"Precision@{limit}: {expected}", output.getvalue())
+                self.assertIn(f"Recall@{limit}: 0.5000", output.getvalue())
                 self.assertIn(f"Retrieved: {', '.join(titles)}\n", output.getvalue())
                 self.assertIn("Relevant: Paddington, Outside top k", output.getvalue())
+
+    def test_recall(self):
+        for relevant, titles, expected in [
+            (["Paddington"], ["Paddington", "Other"], "1.0000"),
+            (["Paddington"], ["Other"], "0.0000"),
+            ([], ["Other"], "0.0000"),
+            (["Paddington", "Ted"], ["Paddington", "Paddington"], "0.5000"),
+        ]:
+            with self.subTest(relevant=relevant, titles=titles):
+                dataset = {"test_cases": [{
+                    "query": "bear movies", "relevant_docs": relevant,
+                }]}
+                output = io.StringIO()
+                with (
+                    patch.object(sys, "argv", ["evaluation_cli.py"]),
+                    patch.object(evaluation_cli, "load_golden_dataset", return_value=dataset),
+                    patch.object(evaluation_cli, "load_movies", return_value=[]),
+                    patch.object(evaluation_cli, "HybridSearch") as search,
+                    contextlib.redirect_stdout(output),
+                ):
+                    search.return_value.rrf_search.return_value = [
+                        {"document": {"title": title}} for title in titles
+                    ]
+                    evaluation_cli.main()
+                self.assertIn(f"Recall@5: {expected}", output.getvalue())
 
     def test_rejects_nonpositive_limits(self):
         for limit in ["0", "-1"]:
