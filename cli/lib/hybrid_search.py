@@ -4,6 +4,7 @@ import time
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from sentence_transformers import CrossEncoder
 
 from .keyword_search import CACHE_INDEX, InvertedIndex
 from .semantic_search import ChunkedSemanticSearch
@@ -318,6 +319,27 @@ Ranking:""",
     )
 
 
+def rerank_cross_encoder(query: str, results: list[dict]) -> list[dict]:
+    if not results:
+        return []
+
+    pairs = []
+    for result in results:
+        doc = result["document"]
+        pairs.append([query, f"{doc.get('title', '')} - {doc.get('description', '')}"])
+
+    cross_encoder = CrossEncoder("cross-encoder/ms-marco-TinyBERT-L2-v2", device="cpu")
+    scores = cross_encoder.predict(pairs)
+    return sorted(
+        [
+            {**result, "cross_encoder_score": float(score)}
+            for result, score in zip(results, scores, strict=True)
+        ],
+        key=lambda result: result["cross_encoder_score"],
+        reverse=True,
+    )
+
+
 def rrf_search_command(query, k, limit, enhance=None, rerank_method=None):
     if enhance == "spell":
         enhanced_query = correct_spelling(query)
@@ -337,12 +359,18 @@ def rrf_search_command(query, k, limit, enhance=None, rerank_method=None):
     results = search.rrf_search(query, k, candidate_limit)
     if rerank_method:
         print(f"Re-ranking top {limit} results using {rerank_method} method...")
-        rerank = rerank_batch if rerank_method == "batch" else rerank_individual
+        rerank = {
+            "individual": rerank_individual,
+            "batch": rerank_batch,
+            "cross_encoder": rerank_cross_encoder,
+        }[rerank_method]
         results = rerank(query, results[:max(0, candidate_limit)])
         print(f"Reciprocal Rank Fusion Results for '{query}' (k={k})\n")
     for rank, result in enumerate(results[:max(0, limit)], start=1):
         document = result["document"]
         print(f"{rank}. {document['title']}")
+        if rerank_method == "cross_encoder":
+            print(f"  Cross Encoder Score: {result['cross_encoder_score']:.3f}")
         if rerank_method == "individual":
             print(f"  Re-rank Score: {result['rerank_score']:.3f}/10")
         if rerank_method == "batch":

@@ -14,6 +14,7 @@ from lib.hybrid_search import (
     normalize,
     normalize_command,
     rerank_batch,
+    rerank_cross_encoder,
     rerank_individual,
     rrf_score,
     rrf_search_command,
@@ -282,6 +283,51 @@ class HybridSearchTests(unittest.TestCase):
             rerank.assert_called_once_with("bear", candidates[:5])
         self.assertIn("Re-ranking top 1 results using batch method...", output.getvalue())
         self.assertIn("1. Movie 3\n  Re-rank Rank: 1\n  RRF Score: 0.016", output.getvalue())
+        self.assertNotIn("2. Movie", output.getvalue())
+
+    def test_cross_encoder_reranking(self):
+        results = self.search.rrf_search("bear", 60, 2)
+        with patch("lib.hybrid_search.CrossEncoder") as encoder:
+            encoder.return_value.predict.return_value = [-2.0, 3.314, -1.0]
+            ranked = rerank_cross_encoder("family bear movie", results)
+            encoder.assert_called_once_with(
+                "cross-encoder/ms-marco-TinyBERT-L2-v2", device="cpu"
+            )
+            encoder.return_value.predict.assert_called_once_with([
+                ["family bear movie", f"{r['document']['title']} - A description"]
+                for r in results
+            ])
+        self.assertEqual([r["document"]["id"] for r in ranked], [3, 2, 1])
+        self.assertEqual(ranked[0]["cross_encoder_score"], 3.314)
+        self.assertEqual(ranked[0]["rrf_score"], results[1]["rrf_score"])
+        self.assertNotIn("cross_encoder_score", results[0])
+
+    def test_cross_encoder_empty_results_and_missing_fields(self):
+        with patch("lib.hybrid_search.CrossEncoder") as encoder:
+            self.assertEqual(rerank_cross_encoder("bear", []), [])
+            encoder.assert_not_called()
+            encoder.return_value.predict.return_value = [0.0]
+            rerank_cross_encoder("bear", [{"document": {}}])
+            encoder.return_value.predict.assert_called_once_with([["bear", " - "]])
+
+    def test_rrf_cross_encoder_candidate_limit_and_output(self):
+        results = self.search.rrf_search("bear", 60, 2)
+        candidates = results * 4
+        ranked = [{**results[1], "cross_encoder_score": 3.314},
+                  {**results[0], "cross_encoder_score": -1.0}]
+        output = io.StringIO()
+        with (
+            patch("lib.hybrid_search.load_movies", return_value=[]),
+            patch("lib.hybrid_search.HybridSearch") as constructor,
+            patch("lib.hybrid_search.rerank_cross_encoder", return_value=ranked) as rerank,
+            contextlib.redirect_stdout(output),
+        ):
+            constructor.return_value.rrf_search.return_value = candidates
+            rrf_search_command("bear", 60, 1, rerank_method="cross_encoder")
+            constructor.return_value.rrf_search.assert_called_once_with("bear", 60, 5)
+            rerank.assert_called_once_with("bear", candidates[:5])
+        self.assertIn("Re-ranking top 1 results using cross_encoder method...", output.getvalue())
+        self.assertIn("1. Movie 3\n  Cross Encoder Score: 3.314\n  RRF Score: 0.016", output.getvalue())
         self.assertNotIn("2. Movie", output.getvalue())
 
     def test_alpha_endpoints(self):
