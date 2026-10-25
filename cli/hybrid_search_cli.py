@@ -44,6 +44,9 @@ def main() -> None:
     )
 
     rrf_parser.add_argument("--debug", action="store_true", help="Log search pipeline stages")
+    rrf_parser.add_argument(
+        "--evaluate", action="store_true", help="Rate search results with an LLM (0–3)"
+    )
 
     args = parser.parse_args()
 
@@ -55,7 +58,7 @@ def main() -> None:
         case "rrf-search":
             hs.rrf_search_command(
                 args.query, args.k, args.limit, args.enhance, args.rerank_method,
-                debug=args.debug,
+                debug=args.debug, evaluate=args.evaluate,
             )
         case _:
             parser.print_help()
