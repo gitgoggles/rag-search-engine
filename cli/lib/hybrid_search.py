@@ -1,3 +1,4 @@
+import json
 import os
 import time
 
@@ -261,6 +262,62 @@ Score:""",
     return sorted(reranked, key=lambda result: result["rerank_score"], reverse=True)
 
 
+def rerank_batch(query: str, results: list[dict]) -> list[dict]:
+    if not results:
+        return []
+
+    load_dotenv()
+    client = OpenAI(
+        base_url=os.environ.get("RERANK_BASE_URL", "https://llama.rucknet.uk/v1"),
+        api_key=os.environ.get("RERANK_API_KEY") or "unused",
+    )
+    doc_list_str = json.dumps([result["document"] for result in results])
+    response = client.chat.completions.create(
+        model=os.environ.get("RERANK_MODEL", "Qwen3.6-35B-A3B-UD-Q4_K_M"),
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        messages=[
+            {
+                "role": "user",
+                "content": f"""Rank the movies listed below by relevance to the following search query.
+
+Query: "{query}"
+
+Movies:
+{doc_list_str}
+
+Return all the movie IDs in order of relevance, best match first.
+Your response must be a raw JSON array of integers.
+Do not wrap the JSON in Markdown. Do not use a ```json code block.
+Do not include any explanatory text. Include each movie ID exactly once.
+
+For example:
+[75, 12, 34, 2, 1]
+
+Ranking:""",
+            }
+        ],
+    )
+    content = response.choices[0].message.content
+    try:
+        ranked_ids = json.loads(content or "")
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid batch re-rank response: {content!r}") from exc
+    documents = {result["document"]["id"]: result for result in results}
+    if (
+        not isinstance(ranked_ids, list)
+        or any(type(doc_id) is not int for doc_id in ranked_ids)
+        or len(ranked_ids) != len(documents)
+        or set(ranked_ids) != set(documents)
+    ):
+        raise ValueError("Batch re-ranking must return each candidate movie ID exactly once")
+
+    ranks = {doc_id: rank for rank, doc_id in enumerate(ranked_ids, start=1)}
+    return sorted(
+        [{**result, "rerank_rank": ranks[result["document"]["id"]]} for result in results],
+        key=lambda result: result["rerank_rank"],
+    )
+
+
 def rrf_search_command(query, k, limit, enhance=None, rerank_method=None):
     if enhance == "spell":
         enhanced_query = correct_spelling(query)
@@ -276,17 +333,20 @@ def rrf_search_command(query, k, limit, enhance=None, rerank_method=None):
         query = expanded_query
 
     search = HybridSearch(load_movies())
-    candidate_limit = limit * 5 if rerank_method == "individual" else limit
+    candidate_limit = limit * 5 if rerank_method else limit
     results = search.rrf_search(query, k, candidate_limit)
-    if rerank_method == "individual":
-        print(f"Re-ranking top {limit} results using individual method...")
-        results = rerank_individual(query, results[:max(0, candidate_limit)])
+    if rerank_method:
+        print(f"Re-ranking top {limit} results using {rerank_method} method...")
+        rerank = rerank_batch if rerank_method == "batch" else rerank_individual
+        results = rerank(query, results[:max(0, candidate_limit)])
         print(f"Reciprocal Rank Fusion Results for '{query}' (k={k})\n")
     for rank, result in enumerate(results[:max(0, limit)], start=1):
         document = result["document"]
         print(f"{rank}. {document['title']}")
         if rerank_method == "individual":
             print(f"  Re-rank Score: {result['rerank_score']:.3f}/10")
+        if rerank_method == "batch":
+            print(f"  Re-rank Rank: {result['rerank_rank']}")
         print(f"  RRF Score: {result['rrf_score']:.3f}")
         print(
             f"  BM25 Rank: {result['bm25_rank']}, "

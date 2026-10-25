@@ -13,6 +13,7 @@ from lib.hybrid_search import (
     hybrid_score,
     normalize,
     normalize_command,
+    rerank_batch,
     rerank_individual,
     rrf_score,
     rrf_search_command,
@@ -214,6 +215,73 @@ class HybridSearchTests(unittest.TestCase):
         self.assertIn("1. Movie 3", output.getvalue())
         self.assertIn("Re-rank Score: 10.000/10", output.getvalue())
         self.assertIn("RRF Score: 0.016", output.getvalue())
+        self.assertNotIn("2. Movie", output.getvalue())
+
+    def test_batch_reranking(self):
+        results = self.search.rrf_search("bear", 60, 2)
+        with (
+            patch("lib.hybrid_search.load_dotenv"),
+            patch.dict("os.environ", {
+                "RERANK_BASE_URL": "https://example.com/v1",
+                "RERANK_MODEL": "custom-model",
+                "RERANK_API_KEY": "custom-key",
+            }, clear=True),
+            patch("lib.hybrid_search.OpenAI") as client,
+        ):
+            completion = client.return_value.chat.completions.create
+            completion.return_value = Mock(choices=[Mock(message=Mock(content="[2, 1, 3]"))])
+            ranked = rerank_batch("family bear movie", results)
+            completion.assert_called_once()
+            client.assert_called_once_with(
+                base_url="https://example.com/v1", api_key="custom-key"
+            )
+            self.assertEqual(completion.call_args.kwargs["model"], "custom-model")
+            prompt = completion.call_args.kwargs["messages"][0]["content"]
+            self.assertIn("family bear movie", prompt)
+            for result in results:
+                self.assertIn(result["document"]["title"], prompt)
+                self.assertIn(result["document"]["description"], prompt)
+            self.assertEqual([r["document"]["id"] for r in ranked], [2, 1, 3])
+            self.assertEqual([r["rerank_rank"] for r in ranked], [1, 2, 3])
+            self.assertEqual(ranked[0]["rrf_score"], results[2]["rrf_score"])
+            self.assertNotIn("rerank_rank", results[0])
+
+    def test_batch_invalid_responses_and_empty_results(self):
+        results = self.search.rrf_search("bear", 60, 2)
+        with (
+            patch("lib.hybrid_search.load_dotenv"),
+            patch("lib.hybrid_search.OpenAI") as client,
+        ):
+            self.assertEqual(rerank_batch("bear", []), [])
+            client.assert_not_called()
+            for content in [None, "not JSON", "{}", "[1, 2]", "[1, 1, 3]",
+                            "[1, 2, 4]", '["1", 2, 3]', "[true, 2, 3]",
+                            "[1.0, 2, 3]", "[[1], 2, 3]"]:
+                with self.subTest(content=content):
+                    client.return_value.chat.completions.create.return_value = Mock(
+                        choices=[Mock(message=Mock(content=content))]
+                    )
+                    with self.assertRaises(ValueError):
+                        rerank_batch("bear", results)
+
+    def test_rrf_batch_candidate_limit_and_output(self):
+        results = self.search.rrf_search("bear", 60, 2)
+        candidates = results * 4
+        ranked = [{**results[1], "rerank_rank": 1},
+                  {**results[0], "rerank_rank": 2}]
+        output = io.StringIO()
+        with (
+            patch("lib.hybrid_search.load_movies", return_value=[]),
+            patch("lib.hybrid_search.HybridSearch") as constructor,
+            patch("lib.hybrid_search.rerank_batch", return_value=ranked) as rerank,
+            contextlib.redirect_stdout(output),
+        ):
+            constructor.return_value.rrf_search.return_value = candidates
+            rrf_search_command("bear", 60, 1, rerank_method="batch")
+            constructor.return_value.rrf_search.assert_called_once_with("bear", 60, 5)
+            rerank.assert_called_once_with("bear", candidates[:5])
+        self.assertIn("Re-ranking top 1 results using batch method...", output.getvalue())
+        self.assertIn("1. Movie 3\n  Re-rank Rank: 1\n  RRF Score: 0.016", output.getvalue())
         self.assertNotIn("2. Movie", output.getvalue())
 
     def test_alpha_endpoints(self):
