@@ -115,6 +115,35 @@ class HybridSearchTests(unittest.TestCase):
             "Enhanced query (spell): 'briish bear' -> 'british bear'\n\n",
         )
 
+    def test_rrf_debug_logs_pipeline_stages_and_cutoffs(self):
+        results = self.search.rrf_search("bear", 60, 2)
+        ranked = [
+            {**result, "cross_encoder_score": float(rank)}
+            for rank, result in enumerate(reversed(results))
+        ]
+        debug_output = io.StringIO()
+        with (
+            patch("lib.hybrid_search.correct_spelling", return_value="bear"),
+            patch("lib.hybrid_search.load_movies", return_value=[]),
+            patch("lib.hybrid_search.HybridSearch") as constructor,
+            patch("lib.hybrid_search.rerank_cross_encoder", return_value=ranked),
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(debug_output),
+        ):
+            constructor.return_value.rrf_search.return_value = results
+            rrf_search_command("baer", 60, 1, "spell", "cross_encoder", debug=True)
+        output = debug_output.getvalue()
+        self.assertIn('[DEBUG] Original query: "baer"', output)
+        self.assertIn('[DEBUG] Query after enhancements: "bear"', output)
+        self.assertIn("Results after RRF search (before candidate cutoff)", output)
+        self.assertIn("Re-ranking candidates", output)
+        self.assertIn("Results after re-ranking (before output cutoff)", output)
+        self.assertIn('"cross_encoder_score"', output)
+        self.assertIn('"bm25_rank"', output)
+        final_line = output.splitlines()[-1]
+        self.assertIn("Final results", final_line)
+        self.assertEqual(final_line.count('"title"'), 1)
+
     def test_spelling_response_and_empty_fallback(self):
         with (
             patch("lib.hybrid_search.load_dotenv"),

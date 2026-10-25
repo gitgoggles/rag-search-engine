@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import time
 
 from dotenv import load_dotenv
@@ -340,7 +341,22 @@ def rerank_cross_encoder(query: str, results: list[dict]) -> list[dict]:
     )
 
 
-def rrf_search_command(query, k, limit, enhance=None, rerank_method=None):
+def rrf_search_command(query, k, limit, enhance=None, rerank_method=None, debug=False):
+    def log(stage, value):
+        if debug:
+            print(f"[DEBUG] {stage}: {json.dumps(value)}", file=sys.stderr)
+
+    def log_results(stage, results):
+        if debug:
+            log(stage, [
+                {"rank": rank, **{key: value for key, value in result.items()
+                                 if key != "document"},
+                 "id": result["document"]["id"],
+                 "title": result["document"]["title"]}
+                for rank, result in enumerate(results, start=1)
+            ])
+
+    log("Original query", query)
     if enhance == "spell":
         enhanced_query = correct_spelling(query)
         print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
@@ -354,9 +370,12 @@ def rrf_search_command(query, k, limit, enhance=None, rerank_method=None):
         print(f"Rewritten query ({enhance}): '{query}' -> '{expanded_query}'\n")
         query = expanded_query
 
+    log("Query after enhancements", query)
     search = HybridSearch(load_movies())
     candidate_limit = limit * 5 if rerank_method else limit
     results = search.rrf_search(query, k, candidate_limit)
+    log_results("Results after RRF search (before candidate cutoff)", results)
+    log_results("Re-ranking candidates", results[:max(0, candidate_limit)])
     if rerank_method:
         print(f"Re-ranking top {limit} results using {rerank_method} method...")
         rerank = {
@@ -366,6 +385,8 @@ def rrf_search_command(query, k, limit, enhance=None, rerank_method=None):
         }[rerank_method]
         results = rerank(query, results[:max(0, candidate_limit)])
         print(f"Reciprocal Rank Fusion Results for '{query}' (k={k})\n")
+    log_results("Results after re-ranking (before output cutoff)", results)
+    log_results("Final results", results[:max(0, limit)])
     for rank, result in enumerate(results[:max(0, limit)], start=1):
         document = result["document"]
         print(f"{rank}. {document['title']}")

@@ -43,6 +43,8 @@ def main() -> None:
         help="Re-ranking method",
     )
 
+    rrf_parser.add_argument("--debug", action="store_true", help="Log search pipeline stages")
+
     args = parser.parse_args()
 
     match args.command:
@@ -52,7 +54,8 @@ def main() -> None:
             hs.weighted_search_command(args.query, args.alpha, args.limit)
         case "rrf-search":
             hs.rrf_search_command(
-                args.query, args.k, args.limit, args.enhance, args.rerank_method
+                args.query, args.k, args.limit, args.enhance, args.rerank_method,
+                debug=args.debug,
             )
         case _:
             parser.print_help()
