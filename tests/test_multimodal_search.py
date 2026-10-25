@@ -18,8 +18,72 @@ class MultimodalSearchTests(unittest.TestCase):
             search = ms.MultimodalSearch()
             model.assert_called_once_with("clip-ViT-B-32")
             self.assertIs(search.model, model.return_value)
-            ms.MultimodalSearch("custom-model")
+            ms.MultimodalSearch(model_name="custom-model")
             model.assert_called_with("custom-model")
+
+    def test_document_embeddings(self):
+        documents = [{"id": 42, "title": "Paddington", "description": "A bear in London"}]
+        with patch.object(ms, "SentenceTransformer") as model:
+            search = ms.MultimodalSearch(documents)
+            self.assertIs(search.documents, documents)
+            self.assertEqual(search.texts, ["Paddington: A bear in London"])
+            model.return_value.encode.assert_called_once_with(
+                search.texts, show_progress_bar=True
+            )
+            self.assertIs(search.text_embeddings, model.return_value.encode.return_value)
+
+    def test_search_with_image_ranks_by_cosine_and_limits_to_five(self):
+        documents = [
+            {"id": i, "title": f"Movie {i}", "description": f"Description {i}"}
+            for i in range(7)
+        ]
+        embeddings = np.array([[1, i] for i in range(7)])
+        with patch.object(ms, "SentenceTransformer") as model:
+            model.return_value.encode.return_value = embeddings
+            search = ms.MultimodalSearch(documents)
+            with patch.object(search, "embed_image", return_value=np.array([0, 2])) as embed:
+                results = search.search_with_image("poster.jpeg")
+                embed.assert_called_once_with("poster.jpeg")
+        self.assertEqual([result["id"] for result in results], [6, 5, 4, 3, 2])
+        self.assertEqual(results[0]["title"], "Movie 6")
+        self.assertEqual(results[0]["description"], "Description 6")
+        self.assertAlmostEqual(results[0]["similarity"], 6 / np.sqrt(37))
+
+    def test_empty_documents(self):
+        with patch.object(ms, "SentenceTransformer") as model:
+            search = ms.MultimodalSearch([])
+            model.return_value.encode.assert_not_called()
+            with patch.object(search, "embed_image", return_value=np.zeros(2)):
+                self.assertEqual(search.search_with_image("poster.jpeg"), [])
+
+    def test_zero_embedding(self):
+        documents = [{"id": 1, "title": "Movie", "description": "Description"}]
+        with patch.object(ms, "SentenceTransformer") as model:
+            model.return_value.encode.return_value = [np.zeros(2)]
+            search = ms.MultimodalSearch(documents)
+            with patch.object(search, "embed_image", return_value=np.ones(2)):
+                self.assertEqual(search.search_with_image("poster.jpeg")[0]["similarity"], 0)
+
+    def test_image_search_command(self):
+        with patch.object(ms, "load_movies") as movies, patch.object(ms, "MultimodalSearch") as search:
+            results = ms.image_search_command("poster.jpeg")
+            search.assert_called_once_with(movies.return_value)
+            search.return_value.search_with_image.assert_called_once_with("poster.jpeg")
+            self.assertIs(results, search.return_value.search_with_image.return_value)
+
+    def test_image_search_cli(self):
+        output = io.StringIO()
+        with (
+            patch.object(sys, "argv", ["multimodal_search_cli.py", "image_search", "poster.jpeg"]),
+            patch.object(cli, "image_search_command") as command,
+            contextlib.redirect_stdout(output),
+        ):
+            command.return_value = [
+                {"id": 42, "title": "Paddington", "description": "A" * 120, "similarity": 0.3094}
+            ]
+            cli.main()
+            command.assert_called_once_with("poster.jpeg")
+        self.assertEqual(output.getvalue(), f"1. Paddington (similarity: 0.309)\n   {'A' * 100}...\n\n")
 
     def test_embed_image(self):
         with (
@@ -52,7 +116,7 @@ class MultimodalSearchTests(unittest.TestCase):
             verify.assert_called_once_with("poster.jpeg")
 
     def test_required_arguments(self):
-        for args in [[], ["verify_image_embedding"]]:
+        for args in [[], ["verify_image_embedding"], ["image_search"]]:
             with (
                 self.subTest(args=args),
                 patch.object(sys, "argv", ["multimodal_search_cli.py", *args]),
