@@ -136,6 +136,88 @@ class AugmentedGenerationCliTests(unittest.TestCase):
         ):
             cli.summarize_command("dinosaurs")
 
+    def test_citations_numbers_sources_and_limits_results(self):
+        documents = [
+            {"title": f"Movie {i}", "description": f"Description {i}"}
+            for i in range(6)
+        ]
+        for limit in (5, 2):
+            with self.subTest(limit=limit):
+                argv = ["augmented_generation_cli.py", "citations", "action movie with lasers"]
+                if limit != 5:
+                    argv.extend(["--limit", str(limit)])
+                output = io.StringIO()
+                with (
+                    patch.object(sys, "argv", argv),
+                    patch.object(cli, "load_dotenv"),
+                    patch.dict(cli.os.environ, {"OPENROUTER_API_KEY": "test-key"}),
+                    patch.object(cli, "load_movies", return_value=documents),
+                    patch.object(cli, "HybridSearch") as search,
+                    patch.object(cli, "OpenAI") as client,
+                    contextlib.redirect_stdout(output),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
+                    search.return_value.rrf_search.return_value = [
+                        {"document": doc} for doc in documents
+                    ]
+                    completions = client.return_value.chat.completions
+                    completions.create.return_value.choices[0].message.content = "  Try Movie 0 [1].  "
+                    cli.main()
+
+                search.assert_called_once_with(documents)
+                search.return_value.rrf_search.assert_called_once_with(
+                    "action movie with lasers", k=60, limit=limit
+                )
+                prompt = completions.create.call_args.kwargs["messages"][0]["content"]
+                for index, doc in enumerate(documents[:limit], start=1):
+                    self.assertIn(f"[{index}] Title: {doc['title']}", prompt)
+                    self.assertIn(doc["description"], prompt)
+                self.assertNotIn(f"Movie {limit}", prompt)
+                for instruction in ("Webflyx", "[1], [2]", "different viewpoints",
+                                    "I don't have enough information"):
+                    self.assertIn(instruction, prompt)
+                self.assertEqual(
+                    output.getvalue(),
+                    "Search Results:\n"
+                    + "".join(f"- Movie {i}\n" for i in range(limit))
+                    + "\nLLM Answer:\nTry Movie 0 [1].\n",
+                )
+
+    def test_citations_requires_query_and_positive_limit(self):
+        for args in (["citations"], ["citations", "action", "--limit", "0"],
+                     ["citations", "action", "--limit", "-1"]):
+            with (
+                self.subTest(args=args),
+                patch.object(sys, "argv", ["augmented_generation_cli.py", *args]),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit) as error,
+            ):
+                cli.main()
+            self.assertEqual(error.exception.code, 2)
+        with self.assertRaisesRegex(ValueError, "limit must be positive"):
+            cli.citations_command("action", 0)
+
+    def test_citations_rejects_empty_response(self):
+        with (
+            patch.object(cli, "load_dotenv"),
+            patch.dict(cli.os.environ, {"OPENROUTER_API_KEY": "test-key"}),
+            patch.object(cli, "load_movies", return_value=[]),
+            patch.object(cli, "HybridSearch") as search,
+            patch.object(cli, "OpenAI") as client,
+        ):
+            search.return_value.rrf_search.return_value = []
+            client.return_value.chat.completions.create.return_value.choices[0].message.content = None
+            with self.assertRaisesRegex(RuntimeError, "empty citation answer"):
+                cli.citations_command("action")
+
+    def test_citations_missing_api_key(self):
+        with (
+            patch.object(cli, "load_dotenv"),
+            patch.dict(cli.os.environ, {}, clear=True),
+            self.assertRaisesRegex(RuntimeError, "OPENROUTER_API_KEY"),
+        ):
+            cli.citations_command("action")
+
     def test_missing_api_key(self):
         with (
             patch.object(cli, "load_dotenv"),
