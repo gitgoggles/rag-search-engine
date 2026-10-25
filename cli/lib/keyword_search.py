@@ -57,8 +57,9 @@ class InvertedIndex:
         return saturated_normalized_tf
 
     def get_bm25_idf(self, term: str) -> float:
-        tokenized_term = tokenize_single_term(term)
+        return self._get_bm25_idf(tokenize_single_term(term))
 
+    def _get_bm25_idf(self, tokenized_term: str) -> float:
         total_doc_count = len(self.docmap)
         term_match_doc_count = len(self.get_documents(tokenized_term))
 
@@ -68,7 +69,7 @@ class InvertedIndex:
 
     def bm25(self, doc_id, term):
         bm25_tf = self.get_bm25_tf(doc_id, term)
-        bm25_idf = self.get_bm25_idf(term)
+        bm25_idf = self._get_bm25_idf(term)
 
         return bm25_tf * bm25_idf
 
