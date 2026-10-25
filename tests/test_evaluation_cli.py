@@ -12,7 +12,11 @@ import evaluation_cli
 
 class EvaluationCliTests(unittest.TestCase):
     def test_precision_and_top_k(self):
-        for limit, expected in [(3, "0.3333"), (6, "0.1667"), (5, "0.2000")]:
+        for limit, expected, expected_f1 in [
+            (3, "0.3333", "0.4000"),
+            (6, "0.1667", "0.2500"),
+            (5, "0.2000", "0.2857"),
+        ]:
             with self.subTest(limit=limit):
                 argv = ["evaluation_cli.py"]
                 if limit != 5:
@@ -42,6 +46,7 @@ class EvaluationCliTests(unittest.TestCase):
                 self.assertIn(f"k={limit}\n", output.getvalue())
                 self.assertIn(f"Precision@{limit}: {expected}", output.getvalue())
                 self.assertIn(f"Recall@{limit}: 0.5000", output.getvalue())
+                self.assertIn(f"  - F1 Score: {expected_f1}\n", output.getvalue())
                 self.assertIn(f"Retrieved: {', '.join(titles)}\n", output.getvalue())
                 self.assertIn("Relevant: Paddington, Outside top k", output.getvalue())
 
@@ -69,6 +74,8 @@ class EvaluationCliTests(unittest.TestCase):
                     ]
                     evaluation_cli.main()
                 self.assertIn(f"Recall@5: {expected}", output.getvalue())
+                if expected == "0.0000":
+                    self.assertIn("  - F1 Score: 0.0000\n", output.getvalue())
 
     def test_rejects_nonpositive_limits(self):
         for limit in ["0", "-1"]:

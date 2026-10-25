@@ -32,9 +32,12 @@ def main() -> None:
             if relevant_titles else 0.0
         )
 
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+
         print(f"\n- Query: {query}")
         print(f"  - Precision@{limit}: {precision:.4f}")
         print(f"  - Recall@{limit}: {recall:.4f}")
+        print(f"  - F1 Score: {f1:.4f}")
         print(f"  - Retrieved: {', '.join(retrieved)}")
         print(f"  - Relevant: {', '.join(relevant)}")
 
