@@ -13,6 +13,7 @@ from lib.hybrid_search import (
     hybrid_score,
     normalize,
     normalize_command,
+    rerank_individual,
     rrf_score,
     rrf_search_command,
     weighted_search_command,
@@ -123,6 +124,97 @@ class HybridSearchTests(unittest.TestCase):
                 completion.return_value.choices = [Mock(message=Mock(content=content))]
                 self.assertEqual(correct_spelling("briish bear"), expected)
             self.assertIn("briish bear", completion.call_args.kwargs["messages"][0]["content"])
+
+    def test_individual_reranking(self):
+        results = self.search.rrf_search("bear", 60, 2)
+        with (
+            patch("lib.hybrid_search.load_dotenv"),
+            patch.dict("os.environ", {"OPENROUTER_API_KEY": "test-key"}),
+            patch("lib.hybrid_search.OpenAI") as client,
+            patch.dict("os.environ", {}, clear=True),
+            patch("lib.hybrid_search.time.sleep") as sleep,
+        ):
+            completion = client.return_value.chat.completions.create
+            completion.side_effect = [
+                Mock(choices=[Mock(message=Mock(content=score))])
+                for score in ["2", "9.5", "9.5"]
+            ]
+            ranked = rerank_individual("family bear movie", results)
+            self.assertEqual([r["document"]["id"] for r in ranked], [3, 2, 1])
+            self.assertEqual(ranked[0]["rerank_score"], 9.5)
+            self.assertEqual(ranked[0]["rrf_score"], results[1]["rrf_score"])
+            self.assertNotIn("rerank_score", results[0])
+            self.assertEqual(sleep.call_count, 2)
+            sleep.assert_called_with(3)
+            client.assert_called_once_with(
+                base_url="https://llama.rucknet.uk/v1", api_key="unused"
+            )
+            for call in completion.call_args_list:
+                self.assertEqual(
+                    call.kwargs["model"], "Qwen3.6-35B-A3B-UD-Q4_K_M"
+                )
+            self.assertEqual(completion.call_args.kwargs["max_tokens"], 32)
+            self.assertEqual(completion.call_args.kwargs["extra_body"], {
+                "chat_template_kwargs": {"enable_thinking": False}
+            })
+            prompt = completion.call_args_list[0].kwargs["messages"][0]["content"]
+            self.assertIn("family bear movie", prompt)
+            self.assertIn("A description", prompt)
+
+    def test_rerank_provider_configuration(self):
+        results = self.search.rrf_search("bear", 60, 1)[:1]
+        with (
+            patch("lib.hybrid_search.load_dotenv"),
+            patch.dict("os.environ", {
+                "RERANK_BASE_URL": "https://example.com/v1",
+                "RERANK_MODEL": "custom-model",
+                "RERANK_API_KEY": "custom-key",
+            }, clear=True),
+            patch("lib.hybrid_search.OpenAI") as client,
+        ):
+            completion = client.return_value.chat.completions.create
+            completion.return_value = Mock(choices=[Mock(message=Mock(content="8"))])
+            self.assertEqual(rerank_individual("bear", results)[0]["rerank_score"], 8)
+            client.assert_called_once_with(
+                base_url="https://example.com/v1", api_key="custom-key"
+            )
+            self.assertEqual(completion.call_args.kwargs["model"], "custom-model")
+
+    def test_invalid_rerank_scores(self):
+        results = self.search.rrf_search("bear", 60, 1)[:1]
+        with (
+            patch("lib.hybrid_search.load_dotenv"),
+            patch.dict("os.environ", {"OPENROUTER_API_KEY": "test-key"}),
+            patch("lib.hybrid_search.OpenAI") as client,
+        ):
+            for content in [None, "not a score", "User Safety: safe", "11", "-1", "nan", "inf"]:
+                client.return_value.chat.completions.create.return_value = Mock(
+                    choices=[Mock(message=Mock(content=content))]
+                )
+                with self.assertRaises(ValueError):
+                    rerank_individual("bear", results)
+        self.assertEqual(rerank_individual("bear", []), [])
+
+    def test_rrf_rerank_candidate_limit_and_output(self):
+        results = self.search.rrf_search("bear", 60, 2)
+        candidates = results * 4
+        ranked = [{**results[1], "rerank_score": 10.0},
+                  {**results[0], "rerank_score": 2.0}]
+        output = io.StringIO()
+        with (
+            patch("lib.hybrid_search.load_movies", return_value=[]),
+            patch("lib.hybrid_search.HybridSearch") as constructor,
+            patch("lib.hybrid_search.rerank_individual", return_value=ranked) as rerank,
+            contextlib.redirect_stdout(output),
+        ):
+            constructor.return_value.rrf_search.return_value = candidates
+            rrf_search_command("bear", 60, 1, rerank_method="individual")
+            constructor.return_value.rrf_search.assert_called_once_with("bear", 60, 5)
+            rerank.assert_called_once_with("bear", candidates[:5])
+        self.assertIn("1. Movie 3", output.getvalue())
+        self.assertIn("Re-rank Score: 10.000/10", output.getvalue())
+        self.assertIn("RRF Score: 0.016", output.getvalue())
+        self.assertNotIn("2. Movie", output.getvalue())
 
     def test_alpha_endpoints(self):
         self.assertEqual(hybrid_score(0.8, 0.2, 1.0), 0.8)

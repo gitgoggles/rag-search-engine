@@ -1,4 +1,5 @@
 import os
+import time
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -210,7 +211,57 @@ User query: "{query}"
     return (response.choices[0].message.content or "").strip() or query
 
 
-def rrf_search_command(query, k, limit, enhance=None):
+def rerank_individual(query: str, results: list[dict]) -> list[dict]:
+    if not results:
+        return []
+
+    load_dotenv()
+    client = OpenAI(
+        base_url=os.environ.get("RERANK_BASE_URL", "https://llama.rucknet.uk/v1"),
+        api_key=os.environ.get("RERANK_API_KEY") or "unused",
+    )
+    reranked = []
+    for index, result in enumerate(results):
+        if index:
+            time.sleep(3)
+        doc = result["document"]
+        response = client.chat.completions.create(
+            model=os.environ.get("RERANK_MODEL", "Qwen3.6-35B-A3B-UD-Q4_K_M"),
+            max_tokens=32,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"""Rate how well this movie matches the search query.
+
+Query: "{query}"
+Movie: {doc.get("title", "")} - {doc.get("description", "")}
+
+Consider:
+- Direct relevance to query
+- User intent (what they're looking for)
+- Content appropriateness
+
+Rate 0-10 (10 = perfect match).
+Output ONLY the number in your response, no other text or explanation.
+
+Score:""",
+                }
+            ],
+        )
+        content = response.choices[0].message.content
+        try:
+            score = float(content or "")
+        except ValueError as exc:
+            raise ValueError(f"Invalid re-rank score: {content!r}") from exc
+        if not 0 <= score <= 10:
+            raise ValueError(f"Re-rank score must be between 0 and 10: {content!r}")
+        reranked.append({**result, "rerank_score": score})
+
+    return sorted(reranked, key=lambda result: result["rerank_score"], reverse=True)
+
+
+def rrf_search_command(query, k, limit, enhance=None, rerank_method=None):
     if enhance == "spell":
         enhanced_query = correct_spelling(query)
         print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
@@ -225,10 +276,17 @@ def rrf_search_command(query, k, limit, enhance=None):
         query = expanded_query
 
     search = HybridSearch(load_movies())
-    results = search.rrf_search(query, k, limit)
-    for rank, result in enumerate(results[:limit], start=1):
+    candidate_limit = limit * 5 if rerank_method == "individual" else limit
+    results = search.rrf_search(query, k, candidate_limit)
+    if rerank_method == "individual":
+        print(f"Re-ranking top {limit} results using individual method...")
+        results = rerank_individual(query, results[:max(0, candidate_limit)])
+        print(f"Reciprocal Rank Fusion Results for '{query}' (k={k})\n")
+    for rank, result in enumerate(results[:max(0, limit)], start=1):
         document = result["document"]
         print(f"{rank}. {document['title']}")
+        if rerank_method == "individual":
+            print(f"  Re-rank Score: {result['rerank_score']:.3f}/10")
         print(f"  RRF Score: {result['rrf_score']:.3f}")
         print(
             f"  BM25 Rank: {result['bm25_rank']}, "

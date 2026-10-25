@@ -36,6 +36,13 @@ def main() -> None:
         help="Query enhancement method",
     )
 
+    rrf_parser.add_argument(
+        "--rerank-method",
+        type=str,
+        choices=["individual"],
+        help="LLM re-ranking method",
+    )
+
     args = parser.parse_args()
 
     match args.command:
@@ -44,7 +51,9 @@ def main() -> None:
         case "weighted-search":
             hs.weighted_search_command(args.query, args.alpha, args.limit)
         case "rrf-search":
-            hs.rrf_search_command(args.query, args.k, args.limit, args.enhance)
+            hs.rrf_search_command(
+                args.query, args.k, args.limit, args.enhance, args.rerank_method
+            )
         case _:
             parser.print_help()
 
